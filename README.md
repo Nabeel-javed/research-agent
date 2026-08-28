@@ -45,6 +45,6 @@ Expected endpoints:
 
 ## Backend
 
-The FastAPI server lives in `backend/`. It listens on `http://localhost:8787` and uses Anthropic Claude Sonnet 4.6 for primary generation, LM Studio for local embeddings and fallback generation, and Brave Search for web results.
+The FastAPI server lives in `backend/`. It listens on `http://localhost:8787` and uses Anthropic Claude Sonnet 4.6 for primary generation, FastEmbed for local document retrieval, and Brave Search for web results. LM Studio is optional and is used only for Qwen fallback generation.
 
 See [backend/README.md](backend/README.md) for setup, architecture, verification, and production considerations.

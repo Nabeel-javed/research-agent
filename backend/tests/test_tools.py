@@ -16,10 +16,10 @@ async def test_search_returns_complete_chunk_without_preview_truncation(monkeypa
         np.array([[1.0, 0.0]], dtype=np.float32),
     )
 
-    async def fake_embed(_settings, _texts):
-        return [[1.0, 0.0]]
+    async def fake_embed(_settings, _query):
+        return np.array([1.0, 0.0], dtype=np.float32)
 
-    monkeypatch.setattr("app.agent.tools.embed_texts", fake_embed)
+    monkeypatch.setattr("app.agent.tools.embed_query", fake_embed)
 
     result = await search_uploads(Settings(), store, "current employer")
 
@@ -36,10 +36,10 @@ async def test_search_preserves_chunk_structure(monkeypatch):
         np.array([[1.0, 0.0]], dtype=np.float32),
     )
 
-    async def fake_embed(_settings, _texts):
-        return [[1.0, 0.0]]
+    async def fake_embed(_settings, _query):
+        return np.array([1.0, 0.0], dtype=np.float32)
 
-    monkeypatch.setattr("app.agent.tools.embed_texts", fake_embed)
+    monkeypatch.setattr("app.agent.tools.embed_query", fake_embed)
 
     result = await search_uploads(Settings(), store, "Northstar")
 

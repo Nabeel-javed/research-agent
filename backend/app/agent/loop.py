@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator, Callable
 
 from app.agent.tools import TOOL_SCHEMAS, run_tool
 from app.config import Settings
+from app.embeddings.fastembed import EmbeddingError
 from app.llm.anthropic_chat import AnthropicChatError, stream_agent_turn
 from app.llm.anthropic_chat import stream_final_answer as anthropic_stream
 from app.llm.lm_studio import LmStudioError
@@ -152,7 +153,7 @@ async def run_research(
         )
         if primary_emitted:
             raise ResearchInterruptedError(RESEARCH_INTERRUPTED) from cloud_error
-    except LmStudioError as embedding_error:
+    except EmbeddingError as embedding_error:
         logger.warning("Source retrieval failed", exc_info=embedding_error)
         if primary_emitted:
             raise ResearchInterruptedError(RESEARCH_INTERRUPTED) from embedding_error
@@ -170,7 +171,7 @@ async def run_research(
             if piece.strip():
                 fallback_emitted = True
             yield piece
-    except (EmptyAnswerError, LmStudioError) as fallback_error:
+    except (EmptyAnswerError, EmbeddingError, LmStudioError) as fallback_error:
         logger.warning("Fallback research provider failed", exc_info=fallback_error)
         if fallback_emitted:
             raise ResearchInterruptedError(RESEARCH_INTERRUPTED) from fallback_error

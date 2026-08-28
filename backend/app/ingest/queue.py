@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from app.config import get_settings
-from app.llm.lm_studio import embed_texts
+from app.embeddings.fastembed import embed_documents
 from app.store.memory import Chunk
 
 
@@ -52,8 +52,7 @@ class EmbedQueue:
             job = await self._queue.get()
             try:
                 texts = [chunk.text for chunk in job.chunks]
-                vectors = await embed_texts(settings, texts)
-                array = np.array(vectors, dtype=np.float32)
+                array = await embed_documents(settings, texts)
                 if not job.done.done():
                     job.done.set_result(array)
             except Exception as exc:  # noqa: BLE001 — surface embed errors to upload

@@ -16,7 +16,7 @@ The response is intentionally not Server-Sent Events (SSE): `src/api.ts` reads U
 1. Validate file type, size, and content.
 2. Extract UTF-8 text from `.txt` and `.md` files or the text layer from digital PDFs.
 3. Split content into bounded, structure-aware chunks of up to 800 characters with an 80-character (10%) overlap.
-4. Create embeddings with `text-embedding-nomic-embed-text-v1.5` through LM Studio.
+4. Create embeddings in-process with FastEmbed and the quantized `nomic-ai/nomic-embed-text-v1.5-Q` model.
 5. Store chunk text, metadata, and vectors in a process-local cosine-similarity index.
 
 Files in the same upload batch are embedded concurrently through the bounded worker queue. The previous corpus remains available during processing and is replaced atomically only after every file succeeds. The upload request waits for that commit, so a subsequent research request can immediately retrieve the complete new source set.
@@ -28,7 +28,7 @@ Files in the same upload batch are embedded concurrently through the bounded wor
 3. Independent tool calls can run concurrently.
 4. The eight most relevant source chunks are returned in full with filename, chunk index, and relevance metadata.
 5. Only the final Markdown answer is streamed to the browser; internal tool payloads are not exposed.
-6. If Anthropic fails or returns an empty answer, the same tool workflow falls back to the local Qwen model in LM Studio.
+6. If Anthropic fails or returns an empty answer, the same tool workflow can fall back to the local Qwen model in LM Studio when that optional service is configured.
 
 Brave Search is called through its HTTP API. An MCP integration configured inside the LM Studio chat interface is not automatically available to an external FastAPI process.
 
@@ -38,8 +38,15 @@ Brave Search is called through its HTTP API. An MCP integration configured insid
 - **Overlapping chunks:** reduces information loss at chunk boundaries while keeping embedding inputs bounded.
 - **Full retrieved passages:** avoids truncating a relevant fact after retrieval.
 - **In-memory vector index:** appropriate for the single-user take-home contract and simple to run locally.
-- **Anthropic primary, local fallback:** provides a reliable hosted default while preserving offline resilience.
+- **In-process FastEmbed retrieval:** keeps document and query embedding self-contained and uses the model's query-specific encoding path.
+- **Anthropic primary, optional local fallback:** provides a reliable hosted default while preserving an optional offline generation path.
 - **Raw HTTP streaming:** exactly matches the existing frontend implementation.
+
+### Embedding provider evolution
+
+The initial implementation generated Nomic embeddings through LM Studio. That worked in the development environment, but it required every reviewer or deployment to install LM Studio, load a separate embedding model, configure its server and token, and keep that service running before document retrieval could work.
+
+The final implementation runs the quantized Nomic model directly inside the backend with FastEmbed. This keeps the same retrieval architecture and comparable result quality while removing LM Studio from the required upload and search path. It also makes the application easier to run from a clean checkout or Docker environment. LM Studio remains an optional Qwen generation fallback and is no longer used for embeddings.
 
 ## Setup
 
@@ -47,19 +54,18 @@ Requirements:
 
 - Python 3.12
 - Node.js 22 for the frontend
-- LM Studio server on port `1234`
-- Qwen chat and Nomic embedding models loaded in LM Studio
 - Anthropic and Brave API credentials
+- Internet access on first upload so FastEmbed can download and cache its approximately 130 MB model
+- Optional: LM Studio on port `1234` with Qwen loaded for fallback generation
 
-Load the local models:
+Optionally load the local fallback model:
 
 ```sh
 lms load qwen3.8-27b-uncensored-mlx
-lms load text-embedding-nomic-embed-text-v1.5
 lms ps
 ```
 
-Copy `backend/.env.example` to `backend/.env.local` and configure `ANTHROPIC_API_KEY`, `BRAVE_API_KEY`, and `LM_STUDIO_API_TOKEN`. The local token is required for embeddings and for the Qwen fallback.
+Copy `backend/.env.example` to `backend/.env.local` and configure `ANTHROPIC_API_KEY` and `BRAVE_API_KEY`. Configure `LM_STUDIO_API_TOKEN` only if the Qwen fallback is wanted. LM Studio is not used for document or query embeddings.
 
 Start the backend:
 
@@ -134,6 +140,7 @@ The tests cover:
 - atomic corpus replacement and concurrent multi-file embedding
 - full retrieved passage delivery without post-retrieval truncation
 - cosine-similarity retrieval
+- separate FastEmbed document and query encoding paths
 - digital PDF ingestion and HTTP validation
 - hidden-reasoning tag filtering for the local fallback
 - Anthropic-first generation
@@ -152,7 +159,7 @@ A production evaluation suite should measure retrieval recall, answer faithfulne
 
 ## Docker
 
-`docker compose up --build` starts the frontend and API. LM Studio remains on the host. With Docker Desktop, set `LM_STUDIO_BASE_URL=http://host.docker.internal:1234/v1` in the Compose environment. Credentials must be supplied at runtime and must not be baked into an image.
+`docker compose up --build` starts the frontend and API. FastEmbed downloads its model into the backend container on the first upload. If the optional Qwen fallback is enabled, LM Studio remains on the host and uses `LM_STUDIO_BASE_URL=http://host.docker.internal:1234/v1`. Credentials must be supplied at runtime and must not be baked into an image.
 
 ## Current scope and production evolution
 

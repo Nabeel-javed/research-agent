@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
     lm_studio_api_token: str = ""
     chat_model: str = "qwen3.8-27b-uncensored-mlx"
-    embed_model: str = "text-embedding-nomic-embed-text-v1.5"
+
+    fastembed_model: str = "nomic-ai/nomic-embed-text-v1.5-Q"
 
     brave_api_key: str = ""
 

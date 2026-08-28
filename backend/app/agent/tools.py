@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 
 import httpx
-import numpy as np
 
 from app.config import Settings
-from app.llm.lm_studio import embed_texts
+from app.embeddings.fastembed import embed_query
 from app.store.memory import MemoryStore
 
 TOOL_SCHEMAS = [
@@ -20,7 +19,10 @@ TOOL_SCHEMAS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "What to look for in the uploads."}
+                    "query": {
+                        "type": "string",
+                        "description": "What to look for in the uploads.",
+                    }
                 },
                 "required": ["query"],
             },
@@ -44,8 +46,8 @@ TOOL_SCHEMAS = [
 
 
 async def search_uploads(settings: Settings, store: MemoryStore, query: str) -> str:
-    vectors = await embed_texts(settings, [query])
-    hits = store.search(np.asarray(vectors[0], dtype=np.float32), settings.retrieve_top_k)
+    query_vector = await embed_query(settings, query)
+    hits = store.search(query_vector, settings.retrieve_top_k)
     if not hits:
         return "No uploaded sources matched this query. The corpus may be empty."
 

@@ -26,19 +26,6 @@ def _client(settings: Settings) -> AsyncOpenAI:
     )
 
 
-async def embed_texts(settings: Settings, texts: list[str]) -> list[list[float]]:
-    if not texts:
-        return []
-    try:
-        client = _client(settings)
-        response = await client.embeddings.create(
-            model=settings.embed_model, input=texts
-        )
-    except APIError as exc:
-        raise LmStudioError(f"LM Studio embeddings failed: {exc}") from exc
-    return [item.embedding for item in response.data]
-
-
 async def chat_once(
     settings: Settings,
     messages: list[dict],

@@ -1,0 +1,27 @@
+[project]
+name = "research-agent-backend"
+version = "0.1.0"
+description = "Local research-agent API for the provided Vite frontend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116.0",
+    "uvicorn[standard]>=0.35.0",
+    "python-multipart>=0.0.20",
+    "pydantic-settings>=2.10.0",
+    "httpx>=0.28.0",
+    "numpy>=2.2.0",
+    "openai>=1.99.0",
+    "anthropic>=0.64.0",
+    "pypdf>=5.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.1.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

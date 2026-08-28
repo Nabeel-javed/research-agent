@@ -6,6 +6,9 @@ research request from racing an unfinished ingestion job.
 
 from __future__ import annotations
 
+import asyncio
+
+import numpy as np
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from app.ingest.chunking import chunk_text
@@ -71,13 +74,17 @@ async def upload_sources(
             )
         )
 
-    store.clear()
-    uploaded: list[dict] = []
-    for meta, chunks in pending:
-        try:
-            await queue.embed_and_store(chunks)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-        uploaded.append(meta)
+    try:
+        vectors_by_file = await asyncio.gather(
+            *(queue.embed(chunks) for _, chunks in pending)
+        )
+        all_chunks = [chunk for _, chunks in pending for chunk in chunks]
+        all_vectors = np.vstack(vectors_by_file)
+        store.replace(all_chunks, all_vectors)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Source processing failed. Existing sources were preserved.",
+        ) from exc
 
-    return {"uploaded": uploaded}
+    return {"uploaded": [meta for meta, _ in pending]}

@@ -19,7 +19,7 @@ The response is intentionally not Server-Sent Events (SSE): `src/api.ts` reads U
 4. Create embeddings with `text-embedding-nomic-embed-text-v1.5` through LM Studio.
 5. Store chunk text, metadata, and vectors in a process-local cosine-similarity index.
 
-The upload request waits for ingestion to finish, so a subsequent research request can immediately retrieve the new sources.
+Files in the same upload batch are embedded concurrently through the bounded worker queue. The previous corpus remains available during processing and is replaced atomically only after every file succeeds. The upload request waits for that commit, so a subsequent research request can immediately retrieve the complete new source set.
 
 ### Research requests
 
@@ -80,6 +80,46 @@ npm run dev
 
 Open `http://localhost:5173`, upload a supported source, and submit a research question.
 
+## Example queries and expected outputs
+
+Exact wording can vary between model runs. These examples define the facts, source usage, and citations that a correct response must contain.
+
+### Uploaded source only
+
+Upload `harbor.txt` containing:
+
+```text
+Project Harbor launches on 12 March 2027. The project lead is Lina Ortiz.
+```
+
+Query:
+
+```text
+According to the uploaded source, when does Project Harbor launch? Cite the filename.
+```
+
+Expected output: the answer states **12 March 2027**, cites `harbor.txt`, and does not introduce unrelated web claims.
+
+### External sources only
+
+Query:
+
+```text
+Search the public web for BoWatt GmbH. Briefly explain what it does and cite the URLs used.
+```
+
+Expected output: a short current description supported by clickable Brave Search result URLs. If web search is unavailable, the response reports a user-safe failure instead of inventing sources.
+
+### Uploaded and external sources
+
+Upload a product brief, then query:
+
+```text
+Compare the product claims in the uploaded brief with current public information. Clearly attribute each claim to the file or a web URL.
+```
+
+Expected output: uploaded claims cite the filename, external claims cite URLs, and any disagreement is presented explicitly rather than silently merged.
+
 ## Verification
 
 ```sh
@@ -91,12 +131,14 @@ pytest
 The tests cover:
 
 - overlapping chunk boundaries and complete source coverage
+- atomic corpus replacement and concurrent multi-file embedding
 - full retrieved passage delivery without post-retrieval truncation
 - cosine-similarity retrieval
 - digital PDF ingestion and HTTP validation
 - hidden-reasoning tag filtering for the local fallback
 - Anthropic-first generation
 - fallback after provider errors or empty output
+- sanitized pre-stream and mid-stream failure handling
 - streamed research responses
 
 Recommended evaluation cases:

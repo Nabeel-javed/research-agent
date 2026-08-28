@@ -3,7 +3,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.agent.loop import EMPTY_ANSWER, run_research
+from app.agent.loop import (
+    ResearchInterruptedError,
+    ResearchUnavailableError,
+    run_research,
+)
 from app.store.memory import MemoryStore
 
 
@@ -54,8 +58,7 @@ async def test_local_qwen_runs_if_anthropic_returns_empty(monkeypatch):
     monkeypatch.setattr("app.agent.loop.qwen_agent_turn", local_turn)
 
     text = await _collect(run_research(FakeSettings(), MemoryStore(), "What is this?"))
-    assert "Falling back to the local Qwen model" in text
-    assert text.endswith("local answer")
+    assert text == "local answer"
 
 
 @pytest.mark.asyncio
@@ -69,9 +72,8 @@ async def test_both_providers_empty_gets_a_visible_message(monkeypatch):
     monkeypatch.setattr("app.agent.loop.stream_agent_turn", empty_turn)
     monkeypatch.setattr("app.agent.loop.qwen_agent_turn", empty_turn)
 
-    text = await _collect(run_research(FakeSettings(), MemoryStore(), "What is this?"))
-    assert "Falling back to the local Qwen model" in text
-    assert text.endswith(EMPTY_ANSWER)
+    with pytest.raises(ResearchUnavailableError):
+        await _collect(run_research(FakeSettings(), MemoryStore(), "What is this?"))
 
 
 @pytest.mark.asyncio
@@ -83,7 +85,11 @@ async def test_tool_turn_stays_off_stream_then_streams_answer(monkeypatch):
         if calls["n"] == 1:
             turn["content"] = ""
             turn["tool_calls"] = [
-                {"id": "call-1", "name": "search_uploads", "arguments": '{"query":"cv"}'}
+                {
+                    "id": "call-1",
+                    "name": "search_uploads",
+                    "arguments": '{"query":"cv"}',
+                }
             ]
             return
             yield ""  # make this an async generator
@@ -98,7 +104,9 @@ async def test_tool_turn_stays_off_stream_then_streams_answer(monkeypatch):
     monkeypatch.setattr("app.agent.loop.stream_agent_turn", fake_turn)
     monkeypatch.setattr("app.agent.loop.run_tool", fake_tool)
 
-    text = await _collect(run_research(FakeSettings(), MemoryStore(), "Summarise the CV"))
+    text = await _collect(
+        run_research(FakeSettings(), MemoryStore(), "Summarise the CV")
+    )
     assert text == "Cited from resume"
     assert calls["n"] == 2
 
@@ -120,5 +128,27 @@ async def test_local_qwen_runs_if_anthropic_fails(monkeypatch):
     monkeypatch.setattr("app.agent.loop.qwen_agent_turn", local_turn)
 
     text = await _collect(run_research(FakeSettings(), MemoryStore(), "What is this?"))
-    assert "Falling back to the local Qwen model" in text
-    assert text.endswith("local answer")
+    assert text == "local answer"
+
+
+@pytest.mark.asyncio
+async def test_partial_primary_failure_is_reported_as_interrupted_without_fallback(
+    monkeypatch,
+):
+    from app.llm.anthropic_chat import AnthropicChatError
+
+    async def interrupted_anthropic(*_args, **_kwargs):
+        yield "partial answer"
+        raise AnthropicChatError("internal provider detail")
+
+    async def local_must_not_run(*_args, **_kwargs):
+        raise AssertionError(
+            "Fallback must not be appended to a partial primary answer"
+        )
+        yield ""
+
+    monkeypatch.setattr("app.agent.loop.stream_agent_turn", interrupted_anthropic)
+    monkeypatch.setattr("app.agent.loop.qwen_agent_turn", local_must_not_run)
+
+    with pytest.raises(ResearchInterruptedError):
+        await _collect(run_research(FakeSettings(), MemoryStore(), "What is this?"))

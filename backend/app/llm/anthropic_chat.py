@@ -101,7 +101,9 @@ def to_anthropic_messages(messages: list[dict]) -> tuple[str, list[dict]]:
 
 def _client(settings: Settings) -> AsyncAnthropic:
     if not settings.anthropic_api_key:
-        raise AnthropicChatError("ANTHROPIC_API_KEY is missing. Put it in backend/.env.local.")
+        raise AnthropicChatError(
+            "ANTHROPIC_API_KEY is missing. Put it in backend/.env.local."
+        )
     return AsyncAnthropic(api_key=settings.anthropic_api_key)
 
 
@@ -142,6 +144,9 @@ async def stream_agent_turn(
     except AnthropicError as exc:
         raise AnthropicChatError(f"Anthropic chat failed: {exc}") from exc
 
+    if getattr(final, "stop_reason", None) == "max_tokens":
+        raise AnthropicChatError("Anthropic response reached its output limit.")
+
     calls = []
     for block in final.content:
         if getattr(block, "type", None) != "tool_use":
@@ -150,7 +155,9 @@ async def stream_agent_turn(
             {
                 "id": block.id,
                 "name": block.name,
-                "arguments": json.dumps(block.input if isinstance(block.input, dict) else {}),
+                "arguments": json.dumps(
+                    block.input if isinstance(block.input, dict) else {}
+                ),
             }
         )
     turn["tool_calls"] = calls
@@ -172,5 +179,9 @@ async def stream_final_answer(
             async for text in stream.text_stream:
                 if text:
                     yield text
+            final = await stream.get_final_message()
     except AnthropicError as exc:
         raise AnthropicChatError(f"Anthropic stream failed: {exc}") from exc
+
+    if getattr(final, "stop_reason", None) == "max_tokens":
+        raise AnthropicChatError("Anthropic response reached its output limit.")

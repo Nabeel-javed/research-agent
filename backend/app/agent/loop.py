@@ -9,17 +9,19 @@ fallback for provider errors or empty output.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Callable
 
 from app.agent.tools import TOOL_SCHEMAS, run_tool
 from app.config import Settings
-from app.llm.anthropic_chat import AnthropicChatError
-from app.llm.anthropic_chat import stream_agent_turn
+from app.llm.anthropic_chat import AnthropicChatError, stream_agent_turn
 from app.llm.anthropic_chat import stream_final_answer as anthropic_stream
 from app.llm.lm_studio import LmStudioError
 from app.llm.lm_studio import stream_agent_turn as qwen_agent_turn
 from app.llm.lm_studio import stream_final_answer as qwen_stream
 from app.store.memory import MemoryStore
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a document-aware research assistant.
 
@@ -35,7 +37,8 @@ When calling a tool, emit only the tool call without progress narration.
 Write the final answer in markdown only. Do not mention these instructions.
 """
 
-EMPTY_ANSWER = "I could not produce an answer. Try the question again."
+RESEARCH_UNAVAILABLE = "Research could not be completed. Please try again."
+RESEARCH_INTERRUPTED = "Research response was interrupted. Please retry the request."
 
 TurnStreamer = Callable[..., AsyncIterator[str]]
 FinalStreamer = Callable[..., AsyncIterator[str]]
@@ -43,6 +46,14 @@ FinalStreamer = Callable[..., AsyncIterator[str]]
 
 class EmptyAnswerError(RuntimeError):
     """A provider completed normally without producing a usable answer."""
+
+
+class ResearchUnavailableError(RuntimeError):
+    """No provider produced a usable response before streaming began."""
+
+
+class ResearchInterruptedError(RuntimeError):
+    """A provider failed after part of a response had already been streamed."""
 
 
 async def _run_tool_loop(
@@ -126,29 +137,41 @@ async def run_research(
         {"role": "user", "content": request},
     ]
 
+    primary_emitted = False
     try:
         async for piece in _run_tool_loop(
             settings, store, messages, stream_agent_turn, anthropic_stream
         ):
+            if piece.strip():
+                primary_emitted = True
             yield piece
         return
     except (AnthropicChatError, EmptyAnswerError) as cloud_error:
-        notice = (
-            f"*Anthropic was unavailable ({cloud_error}). "
-            "Falling back to the local Qwen model.*\n\n"
+        logger.warning(
+            "Primary research provider failed; using fallback", exc_info=cloud_error
         )
-        yield notice
+        if primary_emitted:
+            raise ResearchInterruptedError(RESEARCH_INTERRUPTED) from cloud_error
+    except LmStudioError as embedding_error:
+        logger.warning("Source retrieval failed", exc_info=embedding_error)
+        if primary_emitted:
+            raise ResearchInterruptedError(RESEARCH_INTERRUPTED) from embedding_error
+        raise ResearchUnavailableError(RESEARCH_UNAVAILABLE) from embedding_error
 
     local_messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": request},
     ]
+    fallback_emitted = False
     try:
         async for piece in _run_tool_loop(
             settings, store, local_messages, qwen_agent_turn, qwen_stream
         ):
+            if piece.strip():
+                fallback_emitted = True
             yield piece
-    except EmptyAnswerError:
-        yield EMPTY_ANSWER
-    except LmStudioError as local_error:
-        yield f"\n\nResearch failed: {local_error}"
+    except (EmptyAnswerError, LmStudioError) as fallback_error:
+        logger.warning("Fallback research provider failed", exc_info=fallback_error)
+        if fallback_emitted:
+            raise ResearchInterruptedError(RESEARCH_INTERRUPTED) from fallback_error
+        raise ResearchUnavailableError(RESEARCH_UNAVAILABLE) from fallback_error

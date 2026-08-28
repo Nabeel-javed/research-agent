@@ -13,7 +13,7 @@ import numpy as np
 
 from app.config import get_settings
 from app.llm.lm_studio import embed_texts
-from app.store.memory import Chunk, MemoryStore
+from app.store.memory import Chunk
 
 
 @dataclass
@@ -23,8 +23,7 @@ class EmbedJob:
 
 
 class EmbedQueue:
-    def __init__(self, store: MemoryStore, worker_count: int) -> None:
-        self._store = store
+    def __init__(self, worker_count: int) -> None:
         self._worker_count = worker_count
         self._queue: asyncio.Queue[EmbedJob] = asyncio.Queue()
         self._workers: list[asyncio.Task] = []
@@ -39,14 +38,13 @@ class EmbedQueue:
         await asyncio.gather(*self._workers, return_exceptions=True)
         self._workers.clear()
 
-    async def embed_and_store(self, chunks: list[Chunk]) -> None:
+    async def embed(self, chunks: list[Chunk]) -> np.ndarray:
         if not chunks:
-            return
+            return np.empty((0, 0), dtype=np.float32)
         loop = asyncio.get_running_loop()
         job = EmbedJob(chunks=chunks, done=loop.create_future())
         await self._queue.put(job)
-        vectors = await job.done
-        self._store.add(chunks, vectors)
+        return await job.done
 
     async def _worker(self) -> None:
         settings = get_settings()

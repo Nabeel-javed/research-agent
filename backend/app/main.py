@@ -22,7 +22,7 @@ from app.store.memory import MemoryStore
 async def lifespan(app: FastAPI):
     settings = get_settings()
     store = MemoryStore()
-    queue = EmbedQueue(store=store, worker_count=settings.embed_workers)
+    queue = EmbedQueue(worker_count=settings.embed_workers)
     await queue.start()
     app.state.settings = settings
     app.state.store = store
@@ -56,7 +56,9 @@ def create_app() -> FastAPI:
         return PlainTextResponse(detail, status_code=exc.status_code)
 
     @application.exception_handler(RequestValidationError)
-    async def validation_error(_request, exc: RequestValidationError) -> PlainTextResponse:
+    async def validation_error(
+        _request, exc: RequestValidationError
+    ) -> PlainTextResponse:
         return PlainTextResponse(str(exc.errors()), status_code=422)
 
     return application
